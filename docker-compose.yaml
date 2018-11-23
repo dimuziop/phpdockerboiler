@@ -1,0 +1,156 @@
+version: "3"
+services:
+  vue:
+    build:
+      context: ./etc/vue
+      dockerfile: Dockerfile
+    container_name: vue-scratch
+    user: "root"
+    working_dir: /home/node/app
+    environment:
+    - NODE_ENV=dev
+    volumes:
+    - ./frontend/:/home/node/app
+    ports:
+    - "8085:8080"
+    - "8086:8000"
+    command: sh -c 'vue ui & tail -f /dev/null'
+  web:
+    image: nginx:alpine
+    volumes:
+    - "./etc/nginx/default.conf:/etc/nginx/conf.d/default.conf"
+    - "./etc/ssl:/etc/ssl"
+    - "./backend:/var/www/html"
+    - "./frontend/dist:/var/www/vue"
+    - "./etc/nginx/default.template.conf:/etc/nginx/conf.d/default.template"
+    ports:
+    - "8000:80"
+    - "3000:443"
+    - "80:3001"
+    environment:
+    - NGINX_HOST=${NGINX_HOST}
+    command: /bin/sh -c "envsubst '$$NGINX_HOST' < /etc/nginx/conf.d/default.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    restart: always
+    depends_on:
+    - php
+    - mysqldb
+  php:
+    user: 1000:1000
+    image: dmzpath/php-fmp
+    restart: always
+    volumes:
+    - "./etc/php/php.ini:/usr/local/etc/php/conf.d/php.ini"
+    - "./backend:/var/www/html"
+  composer:
+    user: 1000:1000
+    image: "composer"
+    volumes:
+    - "./backend:/app"
+    command: sh -c 'tail -f /dev/null'
+  myadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    ports:
+    - "8080:80"
+    environment:
+    - PMA_ARBITRARY=1
+    - PMA_HOST=${MYSQL_HOST}
+    restart: always
+    depends_on:
+    - mysqldb
+  mysqldb:
+    image: mysql:${MYSQL_VERSION}
+    container_name: ${MYSQL_HOST}
+    restart: always
+    env_file:
+    - ".env"
+    environment:
+    - MYSQL_DATABASE=${MYSQL_DATABASE}
+    - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+    - MYSQL_USER=${MYSQL_USER}
+    - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    ports:
+    - "8989:3306"
+    volumes:
+    - "./data/db/mysql:/var/lib/mysql"
+    - "./backups:/data/db/dumps"
+  node:
+    build:
+      context: ./etc/node
+      dockerfile: Dockerfile
+    container_name: node
+    user: "root"
+    working_dir: /home/node/app
+    environment:
+    - NODE_ENV=dev
+    volumes:
+    - ./node/:/home/node/app
+    ports:
+    - "9001:80"
+    - "9002:8000"
+    - "9003:9000"
+    command: tail -f /dev/null
+  rabbitmq:
+    build:
+      context: ./etc/rabbitmq
+      dockerfile: Dockerfile
+    ports:
+    - "${RABBITMQ_NODE_HOST_PORT}:5672"
+    - "${RABBITMQ_MANAGEMENT_HTTP_HOST_PORT}:15672"
+    - "${RABBITMQ_MANAGEMENT_HTTPS_HOST_PORT}:15671"
+    privileged: true
+    environment:
+    - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}
+    - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}
+    depends_on:
+    - php
+  grafana:
+    build:
+      context: ./etc/grafana
+    volumes:
+    - ./etc/grafana/var/lib/grafana:/var/lib/grafana
+    ports:
+    - "${GRAFANA_PORT}:3000"
+    command: sh -c 'tail -f /dev/null'
+  phpredisadmin:
+    image: erikdubbelboer/phpredisadmin:latest
+    environment:
+    - ADMIN_USER=${REDIS_WEBUI_USERNAME}
+    - ADMIN_PASS=${REDIS_WEBUI_PASSWORD}
+    - REDIS_1_HOST=${REDIS_WEBUI_CONNECT_HOST}
+    - REDIS_1_PORT=${REDIS_WEBUI_CONNECT_PORT}
+    ports:
+    - "${REDIS_WEBUI_PORT}:80"
+    depends_on:
+    - redis
+  mongo:
+    build:
+      context: ./etc/mongo/
+      dockerfile: Dockerfile
+    ports:
+    - "${MONGODB_PORT}:27017"
+    volumes:
+    - ./data/mongo/:/data/db
+  mongo-webui:
+    build:
+      context: ./etc/mongo-webui
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+    - ROOT_URL=${MONGO_WEBUI_ROOT_URL}
+    - MONGO_URL=${MONGO_WEBUI_MONGO_URL}
+    - INSTALL_MONGO=${MONGO_WEBUI_INSTALL_MONGO}
+    volumes:
+    - ./data/mongo-ui/:/data/db
+    ports:
+    - "${MONGO_WEBUI_PORT}:3000"
+    depends_on:
+    - mongo
+  redis:
+    build:
+      context: ./etc/redis
+      dockerfile: Dockerfile
+    volumes:
+    - ./etc/redis/data:/data
+    ports:
+    - "${REDIS_PORT}:6379"
